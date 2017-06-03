@@ -25,31 +25,48 @@ class JavaScriptCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def indent: String = "  "
   override def outFileName(topClassName: String): String = s"${type2class(topClassName)}.js"
 
-  override def fileHeader(topClassName: String): Unit = {
+  override def fileHeader(name: String): Unit = {
     out.puts(s"// $headerComment")
-  }
 
-  override def fileFooter(name: String): Unit = {
     out.puts
+
+    out.puts("(function(global, factory) {")
+    out.inc
     out.puts("// Export for amd environments")
-    out.puts("if (typeof define === 'function' && define.amd) {")
+    out.puts("var isAmd = (typeof define === 'function' && define.amd);")
+    out.puts("if (isAmd) {")
     out.inc
-    out.puts(s"define('${type2class(name)}', [], function() {")
-    out.inc
-    out.puts(s"return ${type2class(name)};")
-    out.dec
-    out.puts("});")
+    out.puts(s"define('${type2class(name)}', ['KaitaiStream'], factory);") // TODO: Fix dep name
     out.dec
     out.puts("}")
 
     out.puts
 
     out.puts("// Export for CommonJS")
-    out.puts("if (typeof module === 'object' && module && module.exports) {")
+    out.puts("var isCommonJs = (typeof module === 'object' && module && module.exports);")
+    out.puts("if (isCommonJs) {")
     out.inc
-    out.puts(s"module.exports = ${type2class(name)};")
+    out.puts(s"module.exports = factory(require('kaitai-runtime'));") // TODO: Fix dep name
     out.dec
     out.puts("}")
+
+    out.puts
+
+    out.puts("// Export on global scope (used in browsers)")
+    out.puts("// only if neither neither AMD nor CommonJS were detected")
+    out.puts("if (!isAmd && !isCommonJs) {")
+    out.inc
+    out.puts(s"global.${type2class(name)} = factory(global.KaitaiStream);")
+    out.dec
+    out.puts("}")
+    out.dec
+    out.puts(s"})(this, function($kstreamName) {")
+    out.inc
+  }
+
+  override def fileFooter(name: String): Unit = {
+    out.dec
+    out.puts("});")
   }
 
   override def opaqueClassDeclaration(classSpec: ClassSpec): Unit = {
@@ -70,16 +87,21 @@ class JavaScriptCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       ""
     }
 
-    out.puts
-    out.puts(s"var $shortClassName$addNameExpr = (function() {")
-    out.inc
+    if (name.size > 1) {
+      out.puts
+      out.puts(s"var $shortClassName$addNameExpr = (function() {")
+      out.inc
+    }
   }
 
   override def classFooter(name: List[String]): Unit = {
     out.puts
     out.puts(s"return ${type2class(name.last)};")
-    out.dec
-    out.puts("})();")
+
+    if (name.size > 1) {
+      out.dec
+      out.puts("})();")
+    }
   }
 
   override def classConstructorHeader(name: List[String], parentClassName: DataType, rootClassName: List[String], isHybrid: Boolean): Unit = {
